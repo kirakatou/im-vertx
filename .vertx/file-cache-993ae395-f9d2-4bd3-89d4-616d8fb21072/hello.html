@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css">
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+    <div id="Chat">
+        <div id="message">
+            <div style="padding: 5px">
+                <div id="inner-message" 
+                     class="alert" 
+                     :class="alertMessage.type"
+                     transition="expand"
+                     v-if="alert" >
+                    {{ alertMessage.message }} 
+                </div>
+            </div>
+        </div>
+        <chat-box :online-users="onlineUsers" 
+            :conversation="conversation" 
+            @add="addConversation"
+            @reset="resetNotif"
+            @alert="showAlert"
+            v-if="loggedIn">
+        </chat-box>
+        <div id="Chat__Login" v-else>
+            <form @submit.prevent="login()">
+                <input type="text" v-model="username" placeholder="Enter your username...">
+            </form>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.5.15/dist/vue.js"></script>
+    <script type="text/x-template" id="chat-box">
+        <div id="ChatBox">
+            <div class="col-md-9 ChatBox__Left">
+                <div class="ChatBox__List">
+                    <div class="Message" 
+                        v-for="(message, index) in messages"
+                        v-bind:class="{'text-right': (username === message.from) }">
+                        <div class="Message--Message">
+                            <p class="Message__Author" 
+                                v-if="index >= 1 ? messages[index - 1].from != message.from : true">
+                                <strong>{{ message.from }}</strong> said,
+                            </p>
+                            <p class="Message__Content">
+                                {{ message.message }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ChatBox__Input">
+                    <form @submit.prevent="sendMessage()">
+                        <input type="text" v-model="newMessage" placeholder="Enter your message here">
+                    </form>
+                </div>
+            </div>
+
+            <div class="col-md-3 ChatBox__Right">
+                <h3>Online Users</h3>
+
+                <ul class="ChatBox__OnlineUsers list-group">
+                    <li class="list-group-item" 
+                        :class="{ 'active': user.username === selected }"
+                        v-for="user in onlineUsers" 
+                        @click="selectConversation(user)">
+                        {{ user.username }} <span class="badge" v-if="user.notif > 0">{{ user.notif }}</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </script>
+    <script>
+        var socket = new WebSocket("ws://localhost:8999")
+        
+        var Chat = new Vue({
+            el: '#Chat',
+            data: {
+                username: '',
+                loggedIn: false,
+                onlineUsers: [],
+                conversation: [],
+                alert: false,
+                alertMessage: ''
+            },
+            created() {
+                var self = this
+                socket.onmessage = function (ev) {
+                    if (ev.data instanceof Blob) {
+                        var reader = new FileReader()
+                        reader.onload = (function(self) {
+                            return function() {
+                                var json = JSON.parse(reader.result)
+                                self.processJson(json)
+                            }
+                        })(self)
+                        reader.readAsText(ev.data)
+                    }
+                }
+            },
+            methods: {
+                processJson(json) {
+                    var clazz = json['@class']
+                    handlers = [
+                        {
+                            '@class':
+                                'com.desdulianto.learning.imvertx.packet.LoginNotification',
+                            handler: this.loginSuccess
+                        },
+                        {
+                            '@class':
+                                'com.desdulianto.learning.imvertx.packet.OnlineUsers',
+                            handler: this.refreshUserList
+                        },
+                        {
+                            '@class':
+                                'com.desdulianto.learning.imvertx.packet.ConversationMessage',
+                            handler: this.addConversation
+                        },
+                        {
+                            '@class':
+                                'com.desdulianto.learning.imvertx.packet.FailedLoginNotification',
+                            handler: this.failedLogin
+                        },
+                        {
+                            '@class':
+                                'com.desdulianto.learning.imvertx.packet.TextMessage',
+                            handler: this.showAlert
+                        },
+                    ]
+                    var handler = handlers.find(function(x) {return x['@class'] === clazz})
+                    if (handler !== undefined)
+                        handler.handler(json)
+                    else
+                        // buka web developer tool web console
+                        console.log(json)
+                },
+                
+                login() {
+                    var loginMessage = {
+                        '@class': 'com.desdulianto.learning.imvertx.packet.LoginMessage',
+                        username: this.username,
+                        password: ''
+                    }
+                    socket.send(JSON.stringify(loginMessage))
+                    this.loggedIn = true
+                },
+                failedLogin () {
+                    this.loggedIn = false
+                    this.username = ''
+                    this.showAlert({
+                        message: 'Already Online',
+                        type: 'alert-danger'
+                    })
+                },
+                loginSuccess(json) {
+                    var listOnlineUsersMessage = {
+                        '@class': 'com.desdulianto.learning.imvertx.packet.ListOnlineUsersMessage'
+                    }
+                    socket.send(JSON.stringify(listOnlineUsersMessage))
+                },
+                refreshUserList(json) {
+                    json.users.forEach(x => {
+                        var oldData = this.onlineUsers.find(user => user.username === x.username) || { notif: 0 }
+                        x.notif = oldData.notif
+                    })
+                    this.onlineUsers = [...json.users ]
+                },
+                addConversation(message) {
+                    this.conversation.push(message)
+                    if(message.from != this.username)
+                        this.onlineUsers.find(x => x.username === message.from).notif++
+                    var container = this.$children[0].$el.querySelector(".ChatBox__List")
+                    container.scrollTop = container.scrollHeight
+                    var container = this.$children[0].$el.querySelector(".ChatBox__List")
+                    container.scrollTop = container.scrollHeight
+                },
+                resetNotif(user) {
+                    var user = this.onlineUsers.find(x => x.username === user)
+                    if (user) user.notif = 0
+                },
+                async showAlert (json) {
+                    this.alert = true
+                    this.alertMessage = {
+                        message: json.message,
+                        type: json.type || 'alert-success'
+                    }
+                    var self = this
+                    await setTimeout(function(){
+                        self.alert = false
+                    }, 2000)
+                },
+            }
+        })
+        
+        Vue.component('chat-box', {
+            template: '#chat-box',
+            props: ['onlineUsers', 'conversation'],
+            data() {
+                return {
+                    newMessage: '',
+                    selected: '',
+                }
+            },
+            methods: {
+                sendMessage () {
+                    if (this.selected === '') 
+                        return this.$emit('alert', {
+                            message: 'Please select User in list',
+                            type: 'alert-danger'
+                        })
+                    var conversationMessage = {
+                        '@class': 'com.desdulianto.learning.imvertx.packet.ConversationMessage',
+                        message: this.newMessage,
+                        from: this.username,
+                        to: this.selected
+                    }
+                    this.$emit('add', conversationMessage)
+                    socket.send(JSON.stringify(conversationMessage))
+                    this.newMessage = ''
+                },
+                selectConversation (user) {
+                    this.selected = user.username
+                    this.$emit('reset', this.selected)
+                }
+            },
+            watch: {
+                onlineUsers: {
+                    handler: function (val, oldVal) { 
+                        this.$emit('reset', this.selected) 
+                    },
+                    deep: true
+                }
+            },
+            computed: {
+                username () {
+                    return Chat.username
+                },
+                messages () {
+                    return this.conversation.filter(x => {
+                        return (x.from === this.username && x.to === this.selected) ||
+                        (x.from === this.selected && x.to === this.username) 
+                    })
+                }
+            }
+        })
+
+    </script>
+</body>
+</html>

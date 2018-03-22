@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css">
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+    <div id="Chat">
+        <chat-box v-if="loggedIn">
+        </chat-box>
+        <div id="Chat__Login" v-else>
+            <form @submit.prevent="login()">
+                <input type="text" v-model="username" placeholder="Enter your username...">
+            </form>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.5.15/dist/vue.js"></script>
+    <script type="text/x-template" id="chat-box">
+        <div id="ChatBox">
+            <div class="col-md-9 ChatBox__Left">
+                <div class="ChatBox__List">
+                    <div class="Message">
+                        <div class="Message--Alert">
+                            <strong>message</strong>
+                        </div>
+
+                        <div class="Message--Message">
+                            <p class="Message__Author">
+                                <strong>username</strong> said,
+                                timestamp
+                            </p>
+
+                            <p class="Message__Content">
+                                message
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ChatBox__Input">
+                    <form  action="/" method="post">
+                        <input type="text" v-model="newMessage" placeholder="Enter your message here">
+                    </form>
+                </div>
+            </div>
+
+            <div class="col-md-3 ChatBox__Right">
+                <h3>Online Users</h3>
+
+                <ul class="ChatBox__OnlineUsers">
+                    <li >
+                        test
+
+    <!--                    <a href="#" :data-username="user" @click="kickUser" v-if="isAdmin">[ kick ]</a>-->
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </script>
+    <script>
+        var socket = new WebSocket("ws://localhost:8999")
+
+        socket.onmessage = function (ev) {
+            if (ev.data instanceof Blob) {
+                var reader = new FileReader()
+                reader.onload = function() {
+                    var json = JSON.parse(reader.result)
+                    processJson(json)
+                }
+                reader.readAsText(ev.data)
+            }
+        }
+        
+        var Chat = new Vue({
+            el: '#Chat',
+            data: {
+                username: '',
+                loggedIn: false,
+            },
+            methods: {
+                login() {
+                    var loginMessage = {
+                        '@class': 'com.desdulianto.learning.imvertx.packet.LoginMessage',
+                        username: this.username,
+                        password: ''
+                    }
+                    socket.send(JSON.stringify(loginMessage))
+                    this.username = ''
+                    this.loggedIn = true
+                }
+            }
+            
+        });
+        
+        var ChatBox = Vue.component('chat-box', {
+            template: '#chat-box'
+            data() {
+                return {
+                    onlineUsers: []
+                }
+                
+            }
+        });
+
+        function processJson(json) {
+            var clazz = json['@class']
+            handlers = [
+                {
+                    '@class':
+                        'com.desdulianto.learning.imvertx.packet.LoginNotification',
+                    handler: loginNotif
+                },
+                {
+                    '@class':
+                        'com.desdulianto.learning.imvertx.packet.ListOnlineUsersMessage',
+                    handler: refreshUserList
+                }
+            ]
+
+            var handler = handlers.find(function(x) {return x['@class'] === clazz})
+            if (handler !== undefined)
+                handler.handler(json)
+            else
+                // buka web developer tool web console
+                console.log(json)
+        }
+
+        function loginNotif(json) {
+            var listOnlineUsersMessage = {
+                '@class': 'com.desdulianto.learning.imvertx.packet.ListOnlineUsersMessage'
+            }
+            socket.send(JSON.stringify(listOnlineUsersMessage))
+        }
+        
+        function refreshUserList(json) {
+            ChatBox.onlineUsers = ...json.users
+        }
+    </script>
+</body>
+</html>
